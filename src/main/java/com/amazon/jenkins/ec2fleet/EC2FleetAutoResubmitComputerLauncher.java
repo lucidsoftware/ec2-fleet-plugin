@@ -1,8 +1,10 @@
 package com.amazon.jenkins.ec2fleet;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import hudson.model.AbstractProject;
 import hudson.model.Action;
 import hudson.model.Actionable;
+import hudson.model.Cause;
 import hudson.model.Executor;
 import hudson.model.Queue;
 import hudson.model.Result;
@@ -109,8 +111,13 @@ public class EC2FleetAutoResubmitComputerLauncher extends DelegatingComputerLaun
                         if (executable instanceof Actionable) {
                             actions = ((Actionable) executable).getActions();
                         }
-
+                        // The Priority Sorter plugin can set jobs to different (ie. higher) priority if they are launched from User instead of automatic
+                        if (task instanceof AbstractProject) {
+                            ((AbstractProject) task).scheduleBuild2(RESCHEDULE_QUIET_PERIOD_SEC, new Cause.UserIdCause(), actions);
+                        }
+                        else {
                         Queue.getInstance().schedule2(task, RESCHEDULE_QUIET_PERIOD_SEC, actions);
+                        }
                         LOGGER.log(LOG_LEVEL, "Unexpected " + computer.getDisplayName()
                                 + " termination, resubmit " + task + " with actions " + actions);
                     }
