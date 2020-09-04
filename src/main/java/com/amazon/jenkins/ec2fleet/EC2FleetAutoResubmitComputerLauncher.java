@@ -91,40 +91,36 @@ public class EC2FleetAutoResubmitComputerLauncher extends DelegatingComputerLaun
             return;
         }
 
-        final boolean unexpectedDisconnect = computer.isOffline() && computer.getOfflineCause() instanceof OfflineCause.ChannelTermination;
-        if (!cloud.isDisableTaskResubmit() && unexpectedDisconnect) {
+        LOGGER.log(LOG_LEVEL, "DISCONNECTED: " + computer.getDisplayName());
+
+        if (!cloud.isDisableTaskResubmit() && computer.isOffline()) {
             final List<Executor> executors = computer.getExecutors();
-            LOGGER.log(LOG_LEVEL, "Unexpected " + computer.getDisplayName()
-                    + " termination,  resubmit");
+            LOGGER.log(LOG_LEVEL, "Start retriggering executors for " + computer.getDisplayName());
 
             for (Executor executor : executors) {
-                if (executor.getCurrentExecutable() != null) {
+                final Queue.Executable executable = executor.getCurrentExecutable();
+                if (executable != null) {
                     executor.interrupt(Result.ABORTED, new EC2TerminationCause(computer.getDisplayName()));
 
-                    final Queue.Executable executable = executor.getCurrentExecutable();
-                    // if executor is not idle
-                    if (executable != null) {
-                        final SubTask subTask = executable.getParent();
-                        final Queue.Task task = subTask.getOwnerTask();
+                    final SubTask subTask = executable.getParent();
+                    final Queue.Task task = subTask.getOwnerTask();
 
-                        List<Action> actions = new ArrayList<>();
-                        if (executable instanceof Actionable) {
-                            actions = ((Actionable) executable).getActions();
-                        }
-                        // The Priority Sorter plugin can set jobs to different (ie. higher) priority if they are launched from User instead of automatic
-                        if (task instanceof AbstractProject) {
-                            ((AbstractProject) task).scheduleBuild2(RESCHEDULE_QUIET_PERIOD_SEC, new Cause.UserIdCause(), actions);
-                        }
-                        else {
+                    List<Action> actions = new ArrayList<>();
+                    if (executable instanceof Actionable) {
+                        actions = ((Actionable) executable).getActions();
+                    }
+                    // The Priority Sorter plugin can set jobs to different (ie. higher) priority if they are launched from User instead of automatic
+                    LOGGER.log(LOG_LEVEL, "Retriggering:\n\t" + task + "\nwith actions:\n\t" + actions);
+                    if (task instanceof AbstractProject) {
+                        LOGGER.log(LOG_LEVEL, "Bypass the build queue");
+                        ((AbstractProject) task).scheduleBuild2(RESCHEDULE_QUIET_PERIOD_SEC, new Cause.UserIdCause(), actions);
+                    }
+                    else {
                         Queue.getInstance().schedule2(task, RESCHEDULE_QUIET_PERIOD_SEC, actions);
-                        }
-                        LOGGER.log(LOG_LEVEL, "Unexpected " + computer.getDisplayName()
-                                + " termination, resubmit " + task + " with actions " + actions);
                     }
                 }
             }
-            LOGGER.log(LOG_LEVEL, "Unexpected " + computer.getDisplayName()
-                    + " termination, resubmit finished");
+            LOGGER.log(LOG_LEVEL, "Finished retriggering executors for " + computer.getDisplayName());
         } else {
             LOGGER.log(LOG_LEVEL, "Unexpected " + computer.getDisplayName()
                     + " termination but resubmit disabled, no actions, disableTaskResubmit: "
